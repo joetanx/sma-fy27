@@ -91,6 +91,12 @@ flowchart TD
         DfDevOps[Defender for DevOps]
         DfAPI[Defender for APIs]
     end
+    subgraph A365[Agent 365]
+        Graph -.-|OpenTelemetry| Observability
+        Graph -.-|Agent threat detection| S4AI[Security for AI]
+        Observability ~~~ AgentId[Agent Identity and Governance]
+        S4AI ~~~ AgentReg[Agent Registry]
+    end
     Security ~~~ GitHub
     ACR -.-|image scanning| DfContainers
     Azure -.-|CSPM| DCSPM
