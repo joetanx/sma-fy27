@@ -32,42 +32,69 @@ The `welfare_enrolment` table represents the pilot disbursement-system register,
 ## 2. Architecture
 
 ```mermaid
-flowchart TB
-    Citizen[Citizen browser] --> WAF[Application Gateway WAF_v2\nHTTPS unified application origin]
-    Staff[Staff browser] --> WAF
-    Citizen -. sign-in .-> External[Entra External ID external tenant]
-    External -. OIDC federation .-> CitizenIdP[Existing citizen identity provider]
-    Staff -. sign-in .-> Workforce[Agency Entra workforce tenant]
-
-    WAF -->|UI and static assets only| App[Azure Container Apps\ninternal VNet environment\none FastAPI Python container]
-    WAF -->|/api and /api/*| APIM[Azure API Management\nDeveloper tier, internal VNet mode]
-    APIM -->|validated access token + backend authentication| App
-
-    subgraph Application[Modules inside the same application container]
-        UI[Unified HTML/JavaScript UI]
-        API[Citizen and staff API handlers]
-        Graph[LangGraph state machine\npolicy engine and HITL interrupt]
-        Tools[Allowlisted typed Python tools\nfixed parameterised SQL]
-        Auth[User JWT validators\nand agent token provider]
+flowchart TD
+    subgraph Access
+        Citizen
+        Staff
+        Partners["Partners API (Future)"]
     end
-    App --- Application
-    API --> Graph
-    Graph --> Tools
-    Graph --> Foundry[Microsoft Foundry\nmodel deployment + guardrails]
-    Auth --> AgentID[Entra Agent ID\nblueprint + dedicated agent identity]
-    Tools --> PG[Azure Database for PostgreSQL\nFlexible Server, private access]
-    API --> PG
-    Graph -->|durable checkpoints| PG
-
-    GitHub[GitHub\nCodeQL, Dependabot, secret scanning] --> Actions[GitHub Actions\nOIDC federation to Azure]
-    Actions --> ACR[Azure Container Registry]
-    ACR -->|image pinned by digest| App
-    App --> Monitor[Azure Monitor\nApplication Insights + Log Analytics]
-    WAF --> Monitor
-    APIM --> Monitor
-    Defender[Defender for Cloud\nCSPM, AI services, databases, containers] -. posture and threat coverage .-> Foundry
-    Defender -. database protection .-> PG
-    Defender -. image vulnerability assessment .-> ACR
+    subgraph Entra
+        Workforce[Workforce identity]
+        External[External ID]
+        Staff -.->|sign-in| Workforce
+        Citizen -.->|sign-in| External
+    end
+    External -. OIDC federation .-> CitizenIdP[Existing citizen identity provider]
+    subgraph Azure
+        subgraph Perimeter
+            WAF[Application Gateway WAF]
+            APIM[Azure API Management]
+            Citizen --> WAF
+            Staff --> WAF
+            Partners -->|External API call| APIM
+        end
+        subgraph App[Azure Container App]
+            WebApp
+            API[API handlers]
+            Graph[LangGraph agent]
+            Tools["Tools (parameterised SQL)"]
+            WebApp -->|Internal API call| API
+            WAF -->|Web UI| WebApp
+            APIM -.-> API
+            WebApp --> Graph
+            Graph --> Tools
+        end
+        Foundry[Foundry: model + guardrails]
+        Graph --> Foundry
+        subgraph PG[Azure PostgreSQL]
+            DbCitizen[Citizens table]
+            DbState[LangGraph state table]
+            Tools --> DbCitizen
+            API --> DbCitizen
+            Graph -->|durable checkpoints| DbState
+        end
+        ACR -.->|container image| App
+        App ~~~ ACR
+    end
+    subgraph GitHub
+        Code[Source code version control]
+        Code -.- |CodeQL, Dependabot, secrets scanning| GHAS
+        Code --> Actions
+        Actions -->|image deployment| ACR[Azure Container Registry]
+    end
+    subgraph Security[Defender for Cloud]
+        DCSPM[Defender CSPM]
+        DfContainers
+        DfSQL
+        DfDevOps
+    end
+    Security ~~~ GitHub
+    ACR -.-|image scanning| DfContainers
+    Foundry -.-|AI-SPM| DCSPM
+    App -.-|CSPM| DCSPM
+    Perimeter -.-|CSPM| DCSPM
+    PG -.-|database protection| DfSQL
+    GitHub -.-|CI/CD pipeline protection| DfDevOps
 ```
 
 ### Minimal Azure resource set
