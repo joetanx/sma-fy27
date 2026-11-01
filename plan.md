@@ -1,7 +1,5 @@
-# Welfare application review agent — Azure minimum viable pilot
+# Demo use case: citizen welfare application review agent
 
-**Document status:** Architecture and implementation plan; not a deployed application.  
-**Reference check:** 1 November 2026.  
 **Scope:** One welfare programme, synthetic citizen records, one unified web application, one Python application container, and mandatory civil-servant approval before enrolment.  
 **Core principle:** The agent assists case review; it does not exercise statutory decision-making authority or initiate payments.
 
@@ -70,11 +68,7 @@ flowchart TB
     Defender[Defender for Cloud\nCSPM, AI services, databases, containers] -. posture and threat coverage .-> Foundry
     Defender -. database protection .-> PG
     Defender -. image vulnerability assessment .-> ACR
-    KeyVault[Azure Key Vault] -. certificates and unavoidable secrets .-> App
-    KeyVault -. TLS certificate .-> WAF
 ```
-
-**Foundry is the model and safety platform, not the graph runtime.** LangGraph runs in Container Apps. This design does not add Foundry Agent Service, a LangGraph hosted service, AKS, a tool-server microservice, or an identity sidecar by default. Foundry-hosted-agent controls must not be assumed to govern this external runtime automatically.
 
 ### Minimal Azure resource set
 
@@ -88,7 +82,6 @@ flowchart TB
 | Container Registry | Basic for the smallest image-registry pilot; disable admin credentials and use identity-based push/pull |
 | Foundry | One account/project and one supported Azure-hosted chat-model deployment; model quota and data-residency constraints checked first |
 | PostgreSQL | One Flexible Server and one database, private VNet access; smallest suitable supported compute tier, Entra authentication, backups |
-| Key Vault | Gateway certificate and any unavoidable federation/client credentials; no credentials baked into the image |
 | Monitoring | One Log Analytics workspace and Application Insights integration |
 | Defender for Cloud | Enable relevant CSPM and workload plans; verify actual resource coverage rather than merely plan toggles |
 | Entra | Workforce registrations, External ID registrations/federation, and a separately provisioned agent blueprint/identity |
@@ -103,7 +96,7 @@ Use an approved Azure commercial region for the demonstration. An agency deploym
 - Use Container App **environment-level internal visibility**, with app ingress reachable from the VNet. App ingress limited only to other Container Apps would prevent Application Gateway/APIM from reaching it.
 - Configure private DNS, backend hostname/SNI, HTTPS certificate validation, and custom health probes for both APIM and Container Apps [S1, S2]. Do not blindly copy a tutorial's external developer-portal/management exposure.
 - Do not expose the APIM developer portal or management endpoint through the gateway. Container App and PostgreSQL must have no public data ingress.
-- UI routing is not an API backdoor: FastAPI API endpoints require both the end-user token and APIM backend authentication. Use APIM-to-backend mTLS with a narrowly distributed certificate, or another verified supported gateway-auth mechanism. A spoofable `X-From-APIM` header is insufficient.
+- MVP design can allow UI components to call FastAPI API endpoints via `localhost`; production deployment should consider APIM-to-backend mTLS with a narrowly distributed certificate, or another verified supported gateway-auth mechanism.
 - Limit Container App ingress to approved gateway/APIM sources using supported ingress restrictions, and test the effective rules. Keep platform health probes narrowly scoped.
 - PostgreSQL accepts database traffic only from approved runtime/migration paths. Preserve required Entra/Graph outbound connectivity for authentication [S7].
 - For the synthetic pilot, Foundry's authenticated HTTPS endpoint may remain public with least-privilege access; document this exception. Private endpoints and controlled egress are prerequisites for sensitive live data where agency policy requires them.
@@ -144,7 +137,7 @@ Citizen federation requires a registered client at the upstream IdP, discovery m
 ### Application identities versus execution identities
 
 1. **Entra application registrations** define the web clients, protected APIs, delegated scopes, and staff roles. Web actions are attributed to the validated citizen or civil servant, not merely to the application client ID.
-2. **Application runtime managed identity** authenticates ordinary backend operations such as controlled application database access and Key Vault access. Citizens do not need accounts in the workforce PostgreSQL tenant. This service mediation is intentional, not cross-tenant OBO.
+2. **Application runtime managed identity** authenticates ordinary backend operations such as controlled application database access and Foundry access. Citizens do not need accounts in the workforce PostgreSQL tenant. This service mediation is intentional, not cross-tenant OBO.
 3. **Entra agent identity** is the actor for agent tool use. Provision a dedicated agent identity from an agent blueprint in the agency workforce tenant, with a named human sponsor and owner [S4, S5]. Its database role is distinct from the application role.
 4. **Managed identity for blueprint federation** supplies the blueprint credential; it is not itself the downstream agent identity. Acquire the agent token through the documented autonomous agent flow [S6]. Do not label `DefaultAzureCredential()` output an Agent ID token without performing that flow.
 5. **Checkpoint identity** can use a separately scoped runtime managed identity and database role, confined to the checkpoint schema. It is infrastructure persistence, not an LLM business tool.
@@ -383,7 +376,7 @@ A release cannot claim “Foundry red teaming complete” when the compatible ta
 | Defender for Containers | Supported ACR image vulnerability assessment | Enable registry access/scanning, inspect findings for the exact deployed digest, and include them in release assurance |
 | Container Apps runtime | Platform isolation plus application/network hardening and monitoring | Current Defender support matrix lists Kubernetes runtime resources, not Azure Container Apps [S16]. Do not claim sensor-based process/kernel runtime protection for this ACA application |
 | GitHub assurance | Source vulnerabilities, vulnerable dependencies, exposed credentials | CodeQL for Python/JavaScript, Dependabot manifests/Docker/GitHub Actions, secret scanning and push protection where licensed |
-| Key Vault and identity | Credentials/certificates and access governance | Managed identities where supported; rotate unavoidable secrets, log access, restrict administrator rights |
+| Managed identities | Application credentials | Container Apps to pull image from ACR, access model on Foundry, access PostgreSQL database, FIC to agent identity. |
 
 **Coverage reconciliation:** Some recommendation labels use “Defender for SQL” for PostgreSQL. Prefer the current product documentation and confirm the PostgreSQL resource's actual database-protection plan [S15]. Likewise, registry image scanning is not runtime workload threat protection. If full Defender container runtime coverage is mandatory, ACA plus that requirement is presently a design gap: obtain a formal exception or change the runtime to a supported platform such as AKS, which is outside this minimum pilot.
 
@@ -452,7 +445,7 @@ Use protected branches, mandatory reviews, CODEOWNERS for policy/auth/tool/SQL/w
 
 ### Phase B — non-AI skeleton
 
-- Provision network, WAF, APIM, Container Apps, PostgreSQL, ACR, identities, Key Vault, and monitoring through Bicep.
+- Provision network, WAF, APIM, Container Apps, PostgreSQL, ACR, identities, and monitoring through Bicep.
 - Implement the two business tables, privileged routines, technical checkpoints, submission/status APIs, staff queue/decision APIs, and basic unified UI.
 - Verify no direct public origins, no API bypass through the UI backend, no citizen-to-staff escalation, and ownership isolation.
 
